@@ -2,6 +2,8 @@ import json
 import boto3
 import logging
 import os
+from datetime import datetime, timezone
+
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -61,12 +63,14 @@ def handler(event, context):
                 "id": data["id"],
                 "name": data["name"],
                 "timestamp": data["timestamp"],
-                "processed_at": context.aws_request_id,
-                "source_bucket": object_key,
+                "processed_at": datetime.now(timezone.utc).isoformat(),
+                "source_bucket": source_bucket,
+                "source_key": object_key,
+                "status": "SUCCESS"
                 }
         )
 
-
+        logger.info("Written metadata to DynamoDB for %s", object_key)
 
         logger.info("Written transformed file to %s", PROCESSED_BUCKET)
 
