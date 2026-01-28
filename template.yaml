@@ -1,0 +1,166 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Project 2 – Serverless Data Pipeline (Raw → Validate → Transform → Archive)
+
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: python3.12
+
+Resources:
+
+  # -----------------------
+  # S3 BUCKETS (3 BUCKET DESIGN)
+  # -----------------------
+
+  RawBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: gurdeep-raw-data
+
+  ProcessedBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: gurdeep-processed-data
+
+  ArchiveBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: gurdeep-archive-data
+
+
+  ProcessedDataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ProcessedDataTable
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: N
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+
+  # -----------------------
+  # IAM ROLES
+  # -----------------------
+
+  ValidatorFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ValidatorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:*
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - events:PutEvents
+                Resource: "*"
+
+  TransformerFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: TransformerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:*
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:CopyObject
+                  - s3:DeleteObject
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource: !GetAtt ProcessedDataTable.Arn
+
+  # -----------------------
+  # LAMBDA FUNCTIONS
+  # -----------------------
+
+  ValidatorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: validator-function
+      Handler: app.handler
+      CodeUri: validator/
+      Role: !GetAtt ValidatorFunctionRole.Arn
+      Events:
+        RawUpload:
+          Type: S3
+          Properties:
+            Bucket: !Ref RawBucket
+            Events: s3:ObjectCreated:*
+
+  TransformerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: transformer-function
+      Handler: app.handler
+      CodeUri: transformer/
+      Role: !GetAtt TransformerFunctionRole.Arn
+
+  # -----------------------
+  # EVENTBRIDGE RULE
+  # -----------------------
+
+  ValidationCompletedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source:
+          - "custom.validation"
+      Targets:
+        - Arn: !GetAtt TransformerFunction.Arn
+          Id: TransformerTarget
+
+  # -----------------------
+  # EVENTBRIDGE → LAMBDA PERMISSION
+  # -----------------------
+
+  TransformerInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref TransformerFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ValidationCompletedRule.Arn
+
+Outputs:
+  RawBucketName:
+    Value: !Ref RawBucket
+  ProcessedBucketName:
+    Value: !Ref ProcessedBucket
+  ArchiveBucketName:
+    Value: !Ref ArchiveBucket
