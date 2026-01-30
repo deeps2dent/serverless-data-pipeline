@@ -28,6 +28,9 @@ Resources:
     Properties:
       BucketName: gurdeep-archive-data
 
+  # -----------------------
+  # DYNAMODB TABLE
+  # -----------------------
 
   ProcessedDataTable:
     Type: AWS::DynamoDB::Table
@@ -39,7 +42,31 @@ Resources:
           AttributeType: N
       KeySchema:
         - AttributeName: id
-          KeyType: HASH
+          KeyType: HASH 
+
+  # -----------------------
+  # INGESTION LAMBDA FUNCTION
+  # -----------------------
+  IngestionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ingestion-function
+      Handler: app.handler
+      CodeUri: ingestion/
+      Timeout: 10
+      Environment:
+        Variables:
+          RAW_BUCKET: !Ref RawBucket
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref RawBucket
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /ingest
+            Method: POST
+
 
 
   # -----------------------
@@ -158,9 +185,23 @@ Resources:
       SourceArn: !GetAtt ValidationCompletedRule.Arn
 
 Outputs:
+
+  ApiGatewayInvokeURL:
+    Description: API Gateway endpoint for ingestion
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/ingest"
+
   RawBucketName:
+    Description: Raw data S3 bucket
     Value: !Ref RawBucket
+
   ProcessedBucketName:
+    Description: Processed data S3 bucket
     Value: !Ref ProcessedBucket
+
   ArchiveBucketName:
+    Description: Archive data S3 bucket
     Value: !Ref ArchiveBucket
+
+  DynamoDBTableName:
+    Description: DynamoDB table storing processed metadata
+    Value: !Ref ProcessedDataTable
