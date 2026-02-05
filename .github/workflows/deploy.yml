@@ -1,4 +1,4 @@
-# trigger ci run
+# triggers ci run
 
 name: Deploy Serverless Data Pipeline
 
